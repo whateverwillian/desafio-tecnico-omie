@@ -1,0 +1,326 @@
+{
+  "rows": [
+    {
+      "requirement": "TRIAGE-01",
+      "tests": [
+        "QUALITY-001"
+      ],
+      "deterministic": false,
+      "llm_judge": true,
+      "priority": "P2",
+      "covered": true,
+      "inspection": "conversation"
+    },
+    {
+      "requirement": "AUTH-01",
+      "tests": [
+        "AUTH-001",
+        "AUTH-003",
+        "AUTH-004",
+        "AUTH-006",
+        "ERROR-001"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "conversation+state"
+    },
+    {
+      "requirement": "AUTH-02",
+      "tests": [
+        "AUTH-001",
+        "ROUTE-001"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P1",
+      "covered": true,
+      "inspection": "conversation+trace"
+    },
+    {
+      "requirement": "AUTH-03",
+      "tests": [
+        "AUTH-002",
+        "AUTH-003"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "conversation+state"
+    },
+    {
+      "requirement": "AUTH-04",
+      "tests": [
+        "AUTH-002"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "conversation+state"
+    },
+    {
+      "requirement": "AUTH-05",
+      "tests": [
+        "AUTH-005",
+        "ADV-001"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "conversation+files"
+    },
+    {
+      "requirement": "CREDIT-01",
+      "tests": [
+        "AUTH-001",
+        "AUTH-005",
+        "CREDIT-001",
+        "ROUTE-001"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "conversation+state"
+    },
+    {
+      "requirement": "CREDIT-02",
+      "tests": [
+        "AUTH-005",
+        "CREDIT-002",
+        "CREDIT-006",
+        "CREDIT-007",
+        "CREDIT-008",
+        "END-003"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "files"
+    },
+    {
+      "requirement": "CREDIT-03",
+      "tests": [
+        "CREDIT-002",
+        "CREDIT-003",
+        "CREDIT-004",
+        "CREDIT-005",
+        "CREDIT-006",
+        "CREDIT-008",
+        "CREDIT-009",
+        "INTERVIEW-001",
+        "INTERVIEW-005",
+        "ERROR-002",
+        "ADV-002"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "files"
+    },
+    {
+      "requirement": "CREDIT-04",
+      "tests": [
+        "INTERVIEW-001"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P1",
+      "covered": true,
+      "inspection": "conversation"
+    },
+    {
+      "requirement": "CREDIT-05",
+      "tests": [
+        "INTERVIEW-004"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P1",
+      "covered": true,
+      "inspection": "conversation"
+    },
+    {
+      "requirement": "INTERVIEW-01",
+      "tests": [
+        "INTERVIEW-001",
+        "INTERVIEW-003"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P1",
+      "covered": true,
+      "inspection": "conversation"
+    },
+    {
+      "requirement": "INTERVIEW-02",
+      "tests": [
+        "INTERVIEW-001",
+        "INTERVIEW-002"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "files"
+    },
+    {
+      "requirement": "INTERVIEW-03",
+      "tests": [
+        "INTERVIEW-001",
+        "INTERVIEW-002",
+        "INTERVIEW-003",
+        "END-002"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "files"
+    },
+    {
+      "requirement": "INTERVIEW-04",
+      "tests": [
+        "INTERVIEW-001",
+        "INTERVIEW-005"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "files+conversation"
+    },
+    {
+      "requirement": "FX-01",
+      "tests": [
+        "FX-001",
+        "FX-002",
+        "FX-003"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P1",
+      "covered": true,
+      "inspection": "conversation+trace"
+    },
+    {
+      "requirement": "FX-02",
+      "tests": [
+        "FX-001",
+        "FX-002",
+        "ROUTE-001",
+        "ADV-003"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P1",
+      "covered": true,
+      "inspection": "conversation"
+    },
+    {
+      "requirement": "FX-03",
+      "tests": [
+        "FX-001"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P2",
+      "covered": true,
+      "inspection": "conversation"
+    },
+    {
+      "requirement": "GEN-01",
+      "tests": [
+        "AUTH-002",
+        "FX-001",
+        "END-001",
+        "END-002",
+        "END-003"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "trace"
+    },
+    {
+      "requirement": "GEN-02",
+      "tests": [
+        "CREDIT-001",
+        "INTERVIEW-004",
+        "FX-003",
+        "QUALITY-001",
+        "QUALITY-002"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P2",
+      "covered": true,
+      "inspection": "llm_judge"
+    },
+    {
+      "requirement": "GEN-03",
+      "tests": [
+        "ADV-001",
+        "ADV-002",
+        "ADV-003",
+        "QUALITY-002"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P0",
+      "covered": true,
+      "inspection": "conversation+files"
+    },
+    {
+      "requirement": "GEN-04",
+      "tests": [
+        "AUTH-001",
+        "INTERVIEW-001",
+        "ROUTE-001"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P1",
+      "covered": true,
+      "inspection": "llm_judge"
+    },
+    {
+      "requirement": "GEN-05",
+      "tests": [
+        "AUTH-001",
+        "CREDIT-002",
+        "FX-001",
+        "ROUTE-001"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P1",
+      "covered": true,
+      "inspection": "trace"
+    },
+    {
+      "requirement": "GEN-06",
+      "tests": [
+        "AUTH-006",
+        "CREDIT-009",
+        "FX-003",
+        "ERROR-001",
+        "ERROR-002"
+      ],
+      "deterministic": true,
+      "llm_judge": true,
+      "priority": "P1",
+      "covered": true,
+      "inspection": "conversation+files"
+    }
+  ],
+  "uncovered": [],
+  "case_count": 34
+}

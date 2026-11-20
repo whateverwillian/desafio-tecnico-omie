@@ -1,0 +1,218 @@
+[
+  {
+    "id": "TRIAGE-01",
+    "requirement": "Saudação inicial do atendimento",
+    "agent": "triagem",
+    "type": "Conversation Behavior",
+    "testable": true,
+    "criticality": "P2",
+    "inspection": "conversation"
+  },
+  {
+    "id": "AUTH-01",
+    "requirement": "Coletar CPF e data de nascimento e autenticar contra clientes.csv",
+    "agent": "triagem",
+    "type": "Authentication / Authorization",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "conversation+state"
+  },
+  {
+    "id": "AUTH-02",
+    "requirement": "Após autenticação, identificar assunto e redirecionar",
+    "agent": "triagem",
+    "type": "Routing",
+    "testable": true,
+    "criticality": "P1",
+    "inspection": "conversation+trace"
+  },
+  {
+    "id": "AUTH-03",
+    "requirement": "Informar falha de autenticação e permitir até 2 novas tentativas",
+    "agent": "triagem",
+    "type": "Authentication / Authorization",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "conversation+state"
+  },
+  {
+    "id": "AUTH-04",
+    "requirement": "Após a terceira falha consecutiva, informar e encerrar o atendimento",
+    "agent": "triagem",
+    "type": "Authentication / Authorization",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "conversation+state"
+  },
+  {
+    "id": "AUTH-05",
+    "requirement": "Funcionalidades protegidas só após autenticação bem-sucedida",
+    "agent": "triagem",
+    "type": "Authentication / Authorization",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "conversation+files"
+  },
+  {
+    "id": "CREDIT-01",
+    "requirement": "Consultar limite de crédito disponível após autenticação",
+    "agent": "crédito",
+    "type": "Functional",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "conversation+state"
+  },
+  {
+    "id": "CREDIT-02",
+    "requirement": "Registrar solicitação de aumento em solicitacoes_aumento_limite.csv com schema definido",
+    "agent": "crédito",
+    "type": "Data Persistence",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "files"
+  },
+  {
+    "id": "CREDIT-03",
+    "requirement": "Decidir aprovado/rejeitado com base em score_limite.csv",
+    "agent": "crédito",
+    "type": "Business Rule",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "files"
+  },
+  {
+    "id": "CREDIT-04",
+    "requirement": "Em rejeição, oferecer redirecionamento para entrevista de crédito",
+    "agent": "crédito",
+    "type": "Routing",
+    "testable": true,
+    "criticality": "P1",
+    "inspection": "conversation"
+  },
+  {
+    "id": "CREDIT-05",
+    "requirement": "Se o cliente recusar a entrevista, encerrar ou redirecionar para outro assunto válido",
+    "agent": "crédito",
+    "type": "Conversation Behavior",
+    "testable": true,
+    "criticality": "P1",
+    "inspection": "conversation"
+  },
+  {
+    "id": "INTERVIEW-01",
+    "requirement": "Coletar renda, emprego, despesas, dependentes e dívidas",
+    "agent": "entrevista",
+    "type": "Functional",
+    "testable": true,
+    "criticality": "P1",
+    "inspection": "conversation"
+  },
+  {
+    "id": "INTERVIEW-02",
+    "requirement": "Calcular novo score (0 a 1000) pela fórmula ponderada",
+    "agent": "entrevista",
+    "type": "Business Rule",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "files"
+  },
+  {
+    "id": "INTERVIEW-03",
+    "requirement": "Atualizar score do cliente em clientes.csv",
+    "agent": "entrevista",
+    "type": "Data Persistence",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "files"
+  },
+  {
+    "id": "INTERVIEW-04",
+    "requirement": "Redirecionar de volta ao crédito para nova análise",
+    "agent": "entrevista",
+    "type": "Routing",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "files+conversation"
+  },
+  {
+    "id": "FX-01",
+    "requirement": "Consultar cotação de dólar ou outra moeda via API externa",
+    "agent": "câmbio",
+    "type": "Tool Calling",
+    "testable": true,
+    "criticality": "P1",
+    "inspection": "conversation+trace"
+  },
+  {
+    "id": "FX-02",
+    "requirement": "Apresentar a cotação atual ao cliente",
+    "agent": "câmbio",
+    "type": "Functional",
+    "testable": true,
+    "criticality": "P1",
+    "inspection": "conversation"
+  },
+  {
+    "id": "FX-03",
+    "requirement": "Encerrar o atendimento específico de cotação com mensagem amigável",
+    "agent": "câmbio",
+    "type": "Conversation Behavior",
+    "testable": true,
+    "criticality": "P2",
+    "inspection": "conversation"
+  },
+  {
+    "id": "GEN-01",
+    "requirement": "Ao pedir fim da conversa, chamar ferramenta de encerramento",
+    "agent": "todos",
+    "type": "Tool Calling",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "trace"
+  },
+  {
+    "id": "GEN-02",
+    "requirement": "Tom respeitoso e objetivo, sem repetições desnecessárias",
+    "agent": "todos",
+    "type": "UX / Response Quality",
+    "testable": true,
+    "criticality": "P2",
+    "inspection": "llm_judge"
+  },
+  {
+    "id": "GEN-03",
+    "requirement": "Nenhum agente atua fora do escopo definido",
+    "agent": "todos",
+    "type": "Safety / Scope",
+    "testable": true,
+    "criticality": "P0",
+    "inspection": "conversation+files"
+  },
+  {
+    "id": "GEN-04",
+    "requirement": "Redirecionamentos implícitos; cliente percebe um único assistente",
+    "agent": "todos",
+    "type": "Routing",
+    "testable": true,
+    "criticality": "P1",
+    "inspection": "llm_judge"
+  },
+  {
+    "id": "GEN-05",
+    "requirement": "Usar ferramentas para API, CSV e cálculos quando possível",
+    "agent": "todos",
+    "type": "Tool Calling",
+    "testable": true,
+    "criticality": "P1",
+    "inspection": "trace"
+  },
+  {
+    "id": "GEN-06",
+    "requirement": "Tratar erros de CSV/API/entrada sem quebrar e, se possível, registrar o erro",
+    "agent": "todos",
+    "type": "Error Handling",
+    "testable": true,
+    "criticality": "P1",
+    "inspection": "conversation+files"
+  }
+]

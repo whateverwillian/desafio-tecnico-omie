@@ -1,0 +1,32 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./agile_bank:/app/agile_bank
+      - ./app.py:/app/app.py
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      DATA_DIR: /app/data
+      LOG_DIR: /app/logs
+      PYTHONDONTWRITEBYTECODE: "1"
+      STREAMLIT_SERVER_FILE_WATCHER_TYPE: none
+    command:
+      - watchmedo
+      - auto-restart
+      - --directory=/app
+      - --recursive
+      - --patterns=**/*.py
+      - --ignore-patterns=**/__pycache__/**
+      - --debug-force-polling
+      - --debounce-interval=1
+      - --
+      - streamlit
+      - run
+      - app.py
+      - --server.address=0.0.0.0
+      - --server.port=8501

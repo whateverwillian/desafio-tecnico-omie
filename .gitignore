@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+logs/*.jsonl
+!logs/.gitkeep
+.DS_Store
+*.egg-info/
+dist/
+build/
+eval/reports/

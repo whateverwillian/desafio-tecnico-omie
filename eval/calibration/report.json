@@ -1,0 +1,66 @@
+{
+  "passed": false,
+  "agreement": 0.9879518072289156,
+  "threshold": 0.9,
+  "mismatches": 1,
+  "total_labels": 83,
+  "criteria": {
+    "relevance": {
+      "labels": 28,
+      "matches": 28,
+      "agreement": 1.0,
+      "in_gate": true
+    },
+    "factual_clarity": {
+      "labels": 2,
+      "matches": 2,
+      "agreement": 1.0,
+      "in_gate": true
+    },
+    "scope": {
+      "labels": 9,
+      "matches": 8,
+      "agreement": 0.8888888888888888,
+      "in_gate": false
+    },
+    "transparency": {
+      "labels": 7,
+      "matches": 7,
+      "agreement": 1.0,
+      "in_gate": true
+    },
+    "handoff_naturalness": {
+      "labels": 8,
+      "matches": 8,
+      "agreement": 1.0,
+      "in_gate": true
+    },
+    "tone": {
+      "labels": 25,
+      "matches": 25,
+      "agreement": 1.0,
+      "in_gate": true
+    },
+    "security": {
+      "labels": 2,
+      "matches": 2,
+      "agreement": 1.0,
+      "in_gate": true
+    },
+    "next_step_clarity": {
+      "labels": 2,
+      "matches": 2,
+      "agreement": 1.0,
+      "in_gate": true
+    }
+  },
+  "criteria_in_gate": [
+    "factual_clarity",
+    "handoff_naturalness",
+    "next_step_clarity",
+    "relevance",
+    "security",
+    "tone",
+    "transparency"
+  ]
+}
