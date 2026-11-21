@@ -31,6 +31,9 @@
     - [Por que uma tool por passo?](#qa-uma-tool)
     - [Por que o state compartilhado, em vez de states dedicados?](#qa-state)
     - [Por que alguns agents não escolhem as tools por bind_tools?](#qa-bind-tools)
+12. [Apêndices](#apendices)
+     - [Entrada completa](#apendice-entrada)
+     - [Loop do subgraph](#apendice-loop)
 
 <a id="visao-geral"></a>
 
@@ -79,15 +82,40 @@ mensagem
 `greet` e `end` escrevem texto fixo. `triage`, `credit`, `interview` e `currency` são subgraphs. Cada um repete o loop `model` → `tools` → `model`, com no máximo uma tool por passo.
 
 ```mermaid
-flowchart TD
-  msg[Mensagem] --> route{Grafo pai}
-  route --> greet[greet]
-  route --> triage[triage]
-  route --> credit[credit]
-  route --> interview[interview]
-  route --> currency[currency]
-  route --> endNode[end]
+flowchart LR
+  msg([Mensagem]) --> pai{grafo pai}
+  pai -->|não autenticado| triage[triage]
+  pai -->|autenticado| ativo[active_agent]
+
+  subgraph esp [agentes especializados]
+    direction TB
+    interview[interview]
+    credit[credit]
+    currency[currency]
+  end
+
+  ativo --> interview
+  ativo --> credit
+  ativo --> currency
+  triage -.-> credit
+  triage -.-> currency
+  interview <-.-> credit
+  credit <-.-> currency
 ```
+
+Obs.: `triage` também é um agente especializado. Aceitei essa pequena inconsistência pela legibilidade do grafo.
+
+A [entrada completa](#apendice-entrada) e o [loop do subgraph](#apendice-loop) estão nos apêndices.
+
+A seta cheia é a entrada desta mensagem. Sem autenticação, o pai manda para `triage`. Autenticado, entra em `active_agent` e segue para `credit`, `interview` ou `currency`.
+
+A seta tracejada é handoff no mesmo turno. O agente grava o destino e o grafo pai passa o controle para ele antes de responder.
+
+A seta dupla indica que os dois lados podem transferir o atendimento: crédito e entrevista, crédito e câmbio.
+
+A mensagem seguinte, já autenticada, entra por `active_agent` e cai no agente que ficou ativo. Enquanto `active_agent` ainda for `triage`, essa entrada volta para a triagem. O desenho mostra o caso em que já existe um agente especializado.
+
+`greet` e `end` permanecem nas saídas do texto acima.
 
 O state é um só, `ConversationState`, compartilhado pelos quatro subgraphs. Os campos que atravessam o handoff são `messages`, `active_agent`, `authenticated`, `customer`, `interview`, `open_limit_request` e `handoff_reason`.
 
@@ -554,3 +582,72 @@ Um state por subgraph exigiria traduzir esses campos em todo handoff. Um campo e
 Crédito e câmbio produzem um número que o cliente precisa ler exatamente. O modelo devolve uma action fechada, como `consult_limit`, `request_increase` ou `quote`. O runtime chama a tool e escreve a frase.
 
 `bind_tools` deixa o modelo escolher a tool e redigir o texto na mesma resposta. Triagem e entrevista precisam disso: pedir a data, fazer a próxima pergunta, recusar um dado. O score da entrevista é gravado pela tool. O status da reanálise é publicado pelo `prelude`, sem o modelo de crédito.
+
+<a id="apendices"></a>
+
+## 12. Apêndices
+
+<a id="apendice-entrada"></a>
+
+### Entrada completa
+
+`3 falhas?` são três tentativas sem autenticação. `houve fala?` é se o cliente já enviou alguma mensagem.
+
+A seta cheia é a entrada desta mensagem. Sem autenticação, ela cai em `triage`. Autenticado, `active_agent` escolhe um dos quatro agentes, inclusive a triagem.
+
+A seta tracejada é handoff no mesmo turno. A seta dupla indica que os dois lados podem transferir o atendimento: crédito e entrevista, crédito e câmbio.
+
+```mermaid
+flowchart TB
+  msg([Mensagem]) --> enc{encerrado?}
+  enc -->|sim| fim([end])
+  enc -->|não| falhas{3 falhas?}
+  falhas -->|sim| fim
+  falhas -->|não| fala{houve fala?}
+  fala -->|não| ola([greet])
+  fala -->|sim| auth{autenticado?}
+
+  auth -->|não| triage
+  auth -->|sim| ativo[active_agent]
+
+  subgraph esp [agentes especializados]
+    direction LR
+    triage[triage]
+    credit[credit]
+    interview[interview]
+    currency[currency]
+  end
+
+  ativo --> triage
+  ativo --> credit
+  ativo --> interview
+  ativo --> currency
+
+  triage -.-> credit
+  triage -.-> currency
+  credit <-.-> interview
+  credit <-.-> currency
+
+  classDef agente stroke-width:2px
+  class triage,credit,interview,currency agente
+```
+
+<a id="apendice-loop"></a>
+
+### Loop do subgraph
+
+`chamou tool` e `resultado` são o loop. A seta cheia volta de `tools` para `model` até o modelo responder sem chamar tool.
+
+A seta tracejada é a ação auxiliar. Handoff e `end_conversation` devolvem um `Command` com destino e `graph=PARENT`. O grafo pai assume o controle na mesma hora.
+
+No crédito, se o handoff chegou com `score_updated`, o `prelude` publica o aviso e encerra o turno antes do `model`. Nos outros casos, o crédito entra neste mesmo loop.
+
+```mermaid
+flowchart LR
+  entrada([entrada]) --> model[model]
+  model -->|chamou tool| tools[tools]
+  tools -->|resultado| model
+  model -->|sem tool| fim([fim do turno])
+
+  tools -.->|redireciona| pai[grafo pai]
+```
