@@ -110,6 +110,7 @@ def build_tool_agent(
         messages_in = [SystemMessage(content=prompt), *state.get("messages", [])]
 
         if use_actions:
+            # @TODO openai json schema + strict pra garantir structured output + retry genérico por redundância
             decision = action_model.with_structured_output(action_schema).invoke(
                 messages_in,
                 config=config,
