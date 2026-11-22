@@ -5,6 +5,7 @@
 1. [Visão geral](#visao-geral)
    - [Funcionalidades](#funcionalidades)
 2. [Arquitetura](#arquitetura)
+   - [Fluxos](#fluxos)
 3. [Decisões técnicas](#decisoes)
    - [Como estruturar a arquitetura multi-agent e quais padrões utilizar?](#decisao-arquitetura)
    - [Como garantir que os agentes respeitem as regras do sistema mesmo mantendo autonomia para conduzir a conversa?](#decisao-guardrails-fluxo)
@@ -21,18 +22,31 @@
 4. [Execução](#execucao)
 5. [Evaluation e testes](#evaluation)
    - [Homologação](#homologacao)
-6. [Resultados](#resultados)
-7. [Desafios](#desafios)
-   - [A suíte e o judge mediam coisas diferentes](#desafio-suite)
-   - [O crédito encerrou a conversa no handoff da entrevista](#desafio-entrevista)
+6. [Resultados da validação](#resultados)
+   - [Resultado automatizado](#resultado-automatizado)
+   - [Homologação manual](#homologacao-manual)
+7. [Desafios encontrados](#desafios)
+   - [Falsos positivos na avaliação do Judge](#desafio-judge)
+   - [Interpretação incorreta do retorno após a entrevista de crédito](#desafio-handoff-entrevista)
+   - [Instabilidade causada por autonomia excessiva do LLM](#desafio-autonomia)
+   - [Controle determinístico do estado da entrevista](#desafio-entrevista)
+   - [Variabilidade entre execuções da suíte de avaliação](#desafio-avaliacao)
 8. [Limitações](#limitacoes)
+   - [Persistência e concorrência](#limitacao-persistencia)
+   - [Resiliência das integrações](#limitacao-resiliencia)
+   - [Segurança e exposição de dados](#limitacao-seguranca)
+   - [Governança do sistema de IA](#limitacao-governanca)
+   - [Variabilidade do LLM](#limitacao-variabilidade)
+   - [Operação em produção](#limitacao-operacao)
 9. [Próximos passos](#proximos-passos)
+   - [Adotar persistência transacional](#passo-persistencia)
+   - [Reforçar segurança e proteção de dados](#passo-seguranca)
+   - [Adicionar resiliência operacional](#passo-resiliencia)
+   - [Evoluir a observabilidade para operação](#passo-observabilidade)
+   - [Transformar a evaluation em um processo contínuo](#passo-evaluation)
+   - [Otimizar custo e governar o ciclo de vida do agente](#passo-custo)
 10. [Estrutura do projeto](#estrutura)
-11. [Q&A](#qa)
-    - [Por que uma tool por passo?](#qa-uma-tool)
-    - [Por que o state compartilhado, em vez de states dedicados?](#qa-state)
-    - [Por que alguns agents não escolhem as tools por bind_tools?](#qa-bind-tools)
-12. [Apêndices](#apendices)
+11. [Apêndices](#apendices)
     - [Entrada completa](#apendice-entrada)
     - [Loop do subgraph](#apendice-loop)
     - [Suíte do agent no LangSmith](#apendice-langsmith)
@@ -160,6 +174,8 @@ Camadas, de fora para dentro:
 - `application`: casos de uso chamados pelas tools
 - `domain`: CPF, score, faixa de limite, cotação. Não importa CSV nem LangGraph
 - `integrations`: CSV, AwesomeAPI, OpenAI, log de erro
+
+<a id="fluxos"></a>
 
 ### Fluxos
 
@@ -501,7 +517,7 @@ O judge só ganha voto depois de concordar com os rótulos do golden dataset. Ab
 
 ### Homologação
 
-Com a aplicação no ar, abra [http://localhost:8501](http://localhost:8501) e atualize a página antes de cada caso. A conversa mora na sessão do navegador. Os casos 3 e 5 gravam CSV. Para repetir, rode `python3 scripts/revert_data.py`.
+Com a aplicação no ar, abra [http://localhost:8501](http://localhost:8501) e atualize a página antes de cada caso. A conversa mora na sessão do navegador.
 
 O cliente vê um assistente só. Não deve aparecer "transferir", "encaminhar", "agente" nem "setor".
 
@@ -512,6 +528,8 @@ O cliente vê um assistente só. Não deve aparecer "transferir", "encaminhar", 
 | 390.533.447-05 | 03/01/1992 | Carla Mendes, limite R$ 7.000,00 |
 | 153.509.460-56 | 15/11/1988 | Diego Rocha, limite R$ 15.000,00 |
 | 862.883.667-57 | 28/03/1995 | Elena Castro, limite R$ 40.000,00 |
+
+**Obs.** Os casos 3, 4 e 5 escrevem nos CSV. Antes de repeti-los, restaure os arquivos com `python3 scripts/revert_data.py`. Atualizar a página não desfaz essa gravação.
 
 **1. Autenticação e limite**
 
@@ -560,7 +578,42 @@ O score calculado é 649. A faixa permite até R$ 10.000,00, então 8000 é apro
 
 <a id="resultados"></a>
 
-## 6. Resultados
+## 6. Resultados da validação
+
+A solução foi validada em três níveis complementares: **testes determinísticos**, **avaliação com o modelo real** e **homologação manual dos principais fluxos de negócio**.
+
+<a id="resultado-automatizado"></a>
+
+### Resultado automatizado
+
+A suíte com o modelo real executou **34 cenários**, cobrindo os principais fluxos e casos de erro. Na execução de referência:
+
+- `correctness`: **34/34 casos aprovados**;
+- não houve falha de código em casos classificados como P0 ou P1;
+- as métricas semânticas foram avaliadas pelo LLM-as-a-Judge calibrado;
+- o **gate do agent foi aprovado**.
+
+A calibração do Judge foi realizada previamente sobre **83 rótulos humanos**, com **98,8% de concordância**. Métricas que não atingiram o nível de calibração necessário permaneceram como indicadores de acompanhamento, sem participar do gate.
+
+<a id="homologacao-manual"></a>
+
+### Homologação manual
+
+A validação não ficou restrita à suíte automatizada. Os principais fluxos foram executados manualmente com a aplicação em funcionamento, verificando tanto a experiência conversacional quanto os efeitos produzidos pelo sistema.
+
+Foram homologados, entre outros:
+
+- autenticação válida e inválida, incluindo o limite de três tentativas;
+- consulta e aumento de limite;
+- persistência e atualização dos CSVs;
+- rejeição de aumento e oferta da entrevista;
+- entrevista completa e reanálise do limite;
+- consulta de cotação;
+- encerramento voluntário durante o atendimento.
+
+A homologação também permitiu identificar problemas que não seriam adequadamente capturados apenas observando o resultado final da execução, como o encerramento indevido do atendimento após o handoff da entrevista. Esse comportamento foi corrigido e posteriormente coberto pelos testes.
+
+Os experimentos, a calibração do Judge e traces utilizados durante a investigação das execuções estão disponíveis nos [apêndices](#apendices).
 
 O relatório de calibração versionado é `eval/calibration/report.json`: 83 rótulos, concordância de 98,8%. Sete critérios votam. `scope` ficou em 8 de 9 e não vota.
 
@@ -568,50 +621,248 @@ O relatório de calibração versionado é `eval/calibration/report.json`: 83 r�
 
 <a id="desafios"></a>
 
-## 7. Desafios
+## 7. Desafios encontrados
 
-<a id="desafio-suite"></a>
+Durante a implementação, os principais desafios não estiveram na criação individual dos agentes, mas na interação entre **comportamento probabilístico, controle de fluxo, estado conversacional e avaliação**.
 
-### A suíte e o judge mediam coisas diferentes
+Os desafios abaixo representam situações que exigiram investigação, iteração e mudanças na implementação.
 
-**Problema.** Uma conversa que parece boa no Streamlit não diz se o multi-agent está certo. O modelo muda de run para run, o judge também erra, e um case pode falhar porque o teste cobra uma regra que o PDF não escreveu.
+<a id="desafio-judge"></a>
 
-**Jornada.** Montei 34 cases representativos. A primeira leva achou falhas do agent: tool que já existia e não era chamada, confirmação pedida de novo quando o valor já estava na frase, e handoff anunciado ao cliente. Ajustei prompt e copy.
+### 1. Falsos positivos na avaliação do Judge
 
-Outras falhas continuaram. Parte era o judge reprovando fala que o PDF aceita: encerrar na terceira tentativa, pedir a data em DD/MM/AAAA, dizer que o status é `rejeitado`, tratar cotação como assunto do banco. Essas transcrições entraram no golden dataset com o rótulo que o PDF exige.
+Durante a execução da suíte de avaliação, alguns casos classificados negativamente pelo Judge não correspondiam necessariamente a falhas reais do agente. Isso criou um segundo problema: antes de utilizar as métricas para avaliar a aplicação, era necessário verificar se o próprio mecanismo de avaliação estava produzindo julgamentos confiáveis.
 
-Ajustei o prompt de cada critério, uma chamada por métrica, e rodei o golden dataset de novo. A concordância com os rótulos subiu. Também rodei a suíte do agent com `gpt-4o-mini` e `gpt-5-mini`. O modelo mais caro melhorou cotação e troca de assunto, e piorou entrevista e o aviso de rejeição. O agent ficou no `gpt-4o-mini`.
+A investigação foi feita comparando as avaliações do Judge com um conjunto de casos previamente analisados manualmente. Isso permitiu identificar situações em que o avaliador interpretava incorretamente o comportamento esperado.
 
-Com o judge alinhado aos rótulos, falha de case passou a indicar o agent, com menos falso positivo e falso negativo.
+**Solução:** foi criado um conjunto de casos de referência para calibrar o Judge antes de utilizar suas métricas como critério de qualidade. A calibração também permitiu separar falhas do agente de falhas do avaliador e identificar quais métricas apresentavam confiabilidade suficiente para participar dos gates de avaliação.
+
+**Impacto:** a avaliação deixou de ser tratada como uma caixa-preta. O próprio mecanismo de avaliação passou a ser validado antes de ser utilizado para tomar decisões sobre a qualidade do agente.
+
+---
+
+<a id="desafio-handoff-entrevista"></a>
+
+### 2. Interpretação incorreta do retorno após a entrevista de crédito
+
+Um dos problemas encontrados ocorreu no retorno da entrevista de crédito para o fluxo de crédito.
+
+Após concluir a entrevista e atualizar o score, o atendimento deveria retornar ao agente de crédito para que a solicitação original pudesse continuar. Entretanto, o turno de retorno poderia ser interpretado pelo agente como uma nova mensagem do usuário, levando a uma decisão incorreta sobre o próximo passo — inclusive ao encerramento da conversa.
+
+O problema não estava na execução da entrevista em si, mas na **interpretação do contexto após o handoff**.
+
+**Solução:** foi introduzido um `handoff_reason` específico para representar o retorno após atualização do score. O fluxo de crédito passou a reconhecer esse contexto antes de interpretar novamente a solicitação, permitindo retomar o atendimento de forma coerente.
+
+**Impacto:** o handoff passou a carregar não apenas o destino, mas também a informação necessária para que o próximo agente compreendesse por que aquele fluxo estava sendo retomado.
+
+---
+
+<a id="desafio-autonomia"></a>
+
+### 3. Instabilidade causada por autonomia excessiva do LLM
+
+Durante a implementação, ficou evidente que permitir que o LLM conduzisse livremente todas as etapas do fluxo tornava determinados comportamentos mais instáveis.
+
+Algumas operações não precisavam de uma nova decisão do modelo depois de serem executadas. Nesses casos, devolver o controle ao agente apenas para que ele interpretasse novamente um resultado já conhecido adicionava uma etapa probabilística sem benefício real.
+
+Isso levou a uma revisão da fronteira entre **“o modelo decide”** e **“a aplicação já sabe o que deve acontecer”**.
+
+**Solução:** em determinados pontos, as próprias ferramentas passaram a processar o resultado da `AIMessage` e produzir diretamente o próximo resultado ou transição, sem necessariamente devolver o turno ao agente para uma nova decisão.
+
+Esse padrão foi utilizado quando a continuação do fluxo já era determinada por regras da aplicação, como determinados handoffs e resultados de operações.
+
+**Impacto:** alguns fluxos ficaram mais determinísticos e reduziram decisões desnecessárias do modelo. O cliente continua tendo uma experiência conversacional, mas nem toda etapa interna precisa passar novamente pelo LLM.
+
+**Aprendizado:** em sistemas agentic, autonomia não deve ser tratada como um objetivo absoluto. O desafio é identificar onde a autonomia agrega valor e onde ela apenas introduz variabilidade.
+
+---
 
 <a id="desafio-entrevista"></a>
 
-### O crédito encerrou a conversa no handoff da entrevista
+### 4. Controle determinístico do estado da entrevista
 
-**Problema.** Na homologação, a entrevista fazia o submit, gravava o score e devolvia o turno ao crédito. O crédito lia a última mensagem do cliente, "Não tenho dívidas", chamava `end_conversation` e encerrava. O limite tinha sido atualizado. A tela só mostrava a despedida.
+A entrevista de crédito exige a coleta de múltiplas informações em sequência. Uma abordagem puramente conversacional permitiria que o modelo analisasse o histórico e decidisse, a cada turno, qual informação ainda estava faltando.
 
-**Correção.** Com `handoff_reason=score_updated`, o nó `prelude` do crédito reanalisa o pedido e preenche `required_notice` com o status. O runtime publica essa frase e fecha o turno. O modelo não vê a última resposta da entrevista nesse turno.
+Essa abordagem, porém, introduzia variabilidade justamente em uma parte do sistema que precisava ser consistente: o progresso da entrevista.
 
-**Resultado.** O cliente lê o status da reanálise. A entrevista não é oferecida de novo. O atendimento não termina no lugar da aprovação.
+O modelo poderia repetir uma pergunta, interpretar uma resposta de forma diferente do esperado ou avançar para uma etapa que ainda não havia sido validada.
+
+**Solução:** o progresso da entrevista passou a ser mantido em estado estruturado. As respostas são validadas pela ferramenta correspondente, e a aplicação determina qual campo deve ser solicitado em seguida. O modelo permanece responsável pela condução natural da conversa, mas não decide sozinho se uma etapa foi concluída.
+
+Quando todas as informações necessárias estão presentes, o processamento do score e o retorno ao fluxo de crédito são realizados de forma determinística.
+
+**Impacto:** o fluxo tornou-se previsível e testável sem transformar a entrevista em uma interação rígida do ponto de vista do usuário.
+
+---
+
+<a id="desafio-avaliacao"></a>
+
+### 5. Variabilidade entre execuções da suíte de avaliação
+
+Mesmo depois de definir regras determinísticas para os pontos críticos, a camada conversacional continuava apresentando comportamento probabilístico. Uma mesma entrada poderia resultar em respostas diferentes entre execuções, sem que isso necessariamente significasse uma falha.
+
+Isso tornou insuficiente a estratégia de validar apenas respostas exatas.
+
+**Solução:** a avaliação foi dividida entre propriedades que poderiam ser verificadas diretamente por código e propriedades que exigiam avaliação semântica. A suíte determinística passou a validar invariantes do sistema, enquanto avaliações com modelo analisaram aspectos como relevância, aderência ao escopo e qualidade da resposta.
+
+A análise das execuções também permitiu investigar casos individuais em que os resultados variavam entre runs, em vez de tratar toda diferença textual como falha.
+
+**Impacto:** a qualidade passou a ser analisada em termos de **comportamento esperado**, e não de igualdade textual entre respostas. Isso tornou possível avaliar o sistema de forma mais adequada à natureza probabilística dos LLMs.
 
 <a id="limitacoes"></a>
 
 ## 8. Limitações
 
-- A conversa vive no `MemorySaver` da sessão do navegador. Atualizar a página começa outro atendimento. O CSV permanece.
-- A base é CSV, sem concorrência e sem autenticação de produção.
-- Na entrega o tracing fica desligado. Ligado, o state do grafo pode aparecer no trace. O metadata não leva CPF.
-- A suíte usa cotação de fixture, não a AwesomeAPI ao vivo.
-- `scope` fica fora do gate do judge.
-- `CREDIT-003` variou entre execuções repetidas com `gpt-4o-mini`. A suíte não sai idêntica em toda run. O relatório dessa repetição também fica em `eval/reports/`, fora do Git.
+A solução atende ao escopo do desafio, mas algumas decisões foram mantidas deliberadamente em nível de protótipo. As principais limitações estão relacionadas a persistência, resiliência, segurança, governança e operação em escala.
+
+<a id="limitacao-persistencia"></a>
+
+### Persistência e concorrência
+
+A conversa é mantida no `MemorySaver` associado à sessão do navegador, enquanto os dados de negócio ficam em arquivos CSV.
+
+Essa abordagem é suficiente para a demonstração, mas não oferece as garantias esperadas em um ambiente com múltiplas sessões concorrentes. Além disso, alterações relacionadas, como atualização do limite e registro da solicitação, não participam de uma transação única.
+
+<a id="limitacao-resiliencia"></a>
+
+### Resiliência das integrações
+
+Falhas de CSV e da API externa são tratadas e comunicadas ao usuário, mas a solução não possui mecanismos completos de resiliência operacional, como retry com backoff, circuit breaker ou estratégias específicas para recuperação de falhas parciais.
+
+O tratamento implementado evita que uma falha esperada derrube a aplicação, mas não constitui uma estratégia completa para ambientes de produção.
+
+<a id="limitacao-seguranca"></a>
+
+### Segurança e exposição de dados
+
+A solução possui controles de domínio, como autenticação do cliente, restrição de ferramentas por agente e validação determinística das operações.
+
+Porém, uma implantação de produção exigiria controles adicionais de infraestrutura e proteção de dados, incluindo autenticação real de usuários, autorização, gestão de secrets, políticas de retenção e mascaramento de informações sensíveis nos traces.
+
+O tracing utilizado durante o desenvolvimento pode registrar partes do estado conversacional. Embora o metadata utilizado na avaliação não contenha CPF, uma implantação real precisaria definir explicitamente quais dados podem ser enviados, armazenados e consultados na plataforma de observabilidade.
+
+<a id="limitacao-governanca"></a>
+
+### Governança do sistema de IA
+
+A solução possui dataset de avaliação, calibração do Judge, métricas e gates, mas ainda não implementa um processo completo de governança do ciclo de vida do agente.
+
+Não há, por exemplo, um mecanismo formal que relacione cada versão de prompt e modelo aos respectivos resultados de avaliação e aprovação para publicação.
+
+<a id="limitacao-variabilidade"></a>
+
+### Variabilidade do LLM
+
+Mesmo com regras determinísticas nos pontos críticos, a camada conversacional permanece probabilística. O mesmo cenário pode produzir respostas diferentes entre execuções.
+
+Um caso dessa natureza foi observado em `CREDIT-003`. Por isso, a suíte não utiliza igualdade textual como critério geral de correção e combina assertions de código com avaliação semântica.
+
+<a id="limitacao-operacao"></a>
+
+### Operação em produção
+
+A solução não possui ainda requisitos ou mecanismos de operação em produção, como SLA, métricas operacionais, alertas, deployment automatizado ou escalabilidade horizontal.
+
+Esses pontos estão fora do escopo do desafio, mas seriam necessários para transformar a implementação em um serviço de produção.
 
 <a id="proximos-passos"></a>
 
 ## 9. Próximos passos
 
-- Substituir a sessão do navegador por sessão persistente e identidade de verdade.
-- Colocar limite e pedido na mesma transação. Hoje, se a gravação do pedido falha, o código desfaz o limite, mas os dois CSV não compartilham uma transação.
-- Incluir mais rótulos de `scope` e repetir a suíte antes de tratar o gate como critério de release.
+Os próximos passos foram definidos a partir das limitações observadas durante a implementação e não como uma substituição completa da arquitetura atual.
+
+<a id="passo-persistencia"></a>
+
+### 1. Adotar persistência transacional
+
+Substituir os CSVs por um banco de dados transacional e garantir atomicidade entre operações relacionadas.
+
+No fluxo de crédito, por exemplo, a atualização do limite e o registro da solicitação deveriam fazer parte de uma operação transacional, evitando estados parcialmente persistidos.
+
+Também seria possível substituir o `MemorySaver` por uma estratégia de persistência de sessão adequada para múltiplas instâncias da aplicação.
+
+<a id="passo-seguranca"></a>
+
+### 2. Reforçar segurança e proteção de dados
+
+Evoluir a autenticação do desafio para uma identidade real de usuário e aplicar autorização sobre os dados e operações disponíveis.
+
+Na camada de observabilidade, implementar políticas explícitas de:
+
+- mascaramento de PII;
+- retenção de traces;
+- controle de acesso;
+- gestão de secrets;
+- separação entre ambientes.
+
+O objetivo seria garantir que a instrumentação utilizada para diagnosticar o agente não se transforme em uma nova superfície de exposição de dados.
+
+<a id="passo-resiliencia"></a>
+
+### 3. Adicionar resiliência operacional
+
+Evoluir o tratamento atual de erros para uma estratégia de resiliência das integrações.
+
+Entre as medidas:
+
+- timeout explícito para chamadas externas;
+- retry com backoff para falhas transitórias;
+- circuit breaker quando aplicável;
+- idempotência em operações com efeitos colaterais;
+- tratamento de falhas parciais;
+- mecanismos de recuperação para operações interrompidas.
+
+<a id="passo-observabilidade"></a>
+
+### 4. Evoluir a observabilidade para operação
+
+Os traces do LangSmith já permitem investigar uma execução individual. O próximo passo seria transformar essa observabilidade em acompanhamento operacional do sistema.
+
+Seriam adicionadas métricas como:
+
+- latência por agent e tool;
+- quantidade de chamadas ao LLM;
+- custo estimado por execução;
+- taxa de erro por integração;
+- frequência de handoffs;
+- taxa de falha de autenticação;
+- comportamento das principais ferramentas.
+
+Essas métricas poderiam alimentar dashboards e alertas, complementando a investigação detalhada oferecida pelos traces.
+
+<a id="passo-evaluation"></a>
+
+### 5. Transformar a evaluation em um processo contínuo
+
+A suíte atual poderia evoluir de uma avaliação executada manualmente para um quality gate integrado ao CI/CD.
+
+Os principais passos seriam:
+
+- ampliar o golden dataset;
+- adicionar ao dataset casos encontrados durante homologação e investigação de falhas;
+- aumentar a cobertura de métricas ainda pouco representadas, como `scope`;
+- executar múltiplas runs para medir variabilidade;
+- estabelecer thresholds por métrica;
+- bloquear alterações que introduzam regressões relevantes.
+
+Outra evolução seria avaliar não apenas a resposta final, mas também decisões intermediárias do agente, como seleção de tools, handoffs e alterações de estado.
+
+<a id="passo-custo"></a>
+
+### 6. Otimizar custo e governar o ciclo de vida do agente
+
+À medida que o número de execuções, traces e avaliações aumenta, o custo passa a ser uma preocupação operacional.
+
+Algumas estratégias possíveis seriam:
+
+- utilizar modelos diferentes de acordo com a complexidade da tarefa;
+- reduzir chamadas desnecessárias ao LLM;
+- aplicar caching quando apropriado;
+- amostrar traces em vez de registrar todas as execuções;
+- executar evaluations completas apenas em uma parcela das execuções ou em momentos específicos;
+- habilitar observabilidade e avaliações seletivamente por ambiente, agente ou cliente por meio de feature flags.
+
+Por fim, seria útil versionar conjuntamente **código, prompts, modelo, dataset de avaliação e resultados**, permitindo responder de forma objetiva se uma alteração específica melhorou ou degradou o comportamento do agente.
 
 <a id="estrutura"></a>
 
@@ -632,39 +883,9 @@ tests/             pytest com modelo scriptado
 app.py
 ```
 
-<a id="qa"></a>
-
-## 11. Q&A
-
-<a id="qa-uma-tool"></a>
-
-### Por que uma tool por passo?
-
-O passo é uma resposta do modelo, não uma mensagem do cliente. O modelo pode devolver várias tool calls na mesma resposta. O runtime executa só a primeira e responde às outras com "Chame uma tool por vez."
-
-Se todas rodassem juntas, a ordem ficaria ambígua: autenticar e cotar, ou fazer handoff e encerrar, no mesmo passo. Duas tools também poderiam preencher `required_notice`, e o chat não saberia qual frase mostrar.
-
-O loop volta ao modelo na mesma mensagem do cliente quando o turno continua aberto. Falha de autenticação, handoff, encerramento e a publicação de limite ou cotação fecham o turno. A segunda moeda, por exemplo, só entra na mensagem seguinte.
-
-<a id="qa-state"></a>
-
-### Por que o state compartilhado, em vez de states dedicados?
-
-`customer`, `interview`, `open_limit_request`, `handoff_reason` e `messages` nascem em um agent e são lidos por outro. A autenticação grava o cliente. O crédito usa esse cliente. A entrevista grava as respostas. O crédito reanalisa com elas.
-
-Um state por subgraph exigiria traduzir esses campos em todo handoff. Um campo esquecido quebra o turno seguinte. Não havia rascunho que devesse permanecer só dentro de um agent.
-
-<a id="qa-bind-tools"></a>
-
-### Por que alguns agents não escolhem as tools por `bind_tools`?
-
-Crédito e câmbio produzem um número que o cliente precisa ler exatamente. O modelo devolve uma action fechada, como `consult_limit`, `request_increase` ou `quote`. O runtime chama a tool e escreve a frase.
-
-`bind_tools` deixa o modelo escolher a tool e redigir o texto na mesma resposta. Triagem e entrevista precisam disso: pedir a data, fazer a próxima pergunta, recusar um dado. O score da entrevista é gravado pela tool. O status da reanálise é publicado pelo `prelude`, sem o modelo de crédito.
-
 <a id="apendices"></a>
 
-## 12. Apêndices
+## 11. Apêndices
 
 <a id="apendice-entrada"></a>
 
