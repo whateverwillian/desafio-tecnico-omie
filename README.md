@@ -7,16 +7,17 @@
 2. [Arquitetura](#arquitetura)
 3. [Decisões técnicas](#decisoes)
    - [Como estruturar a arquitetura multi-agent e quais padrões utilizar?](#decisao-arquitetura)
-   - [Como controlar a autonomia dos agentes sem perder o controle do fluxo?](#decisao-autonomia)
+   - [Como garantir que os agentes respeitem as regras do sistema mesmo mantendo autonomia para conduzir a conversa?](#decisao-guardrails-fluxo)
    - [O que deve ser decidido pelo LLM e o que deve permanecer determinístico?](#decisao-determinismo)
    - [Como garantir que valores e resultados apresentados ao cliente sejam confiáveis?](#decisao-valores)
-   - [Como preservar o contexto durante os handoffs entre agentes?](#decisao-contexto)
-   - [Como modelar fluxos que exigem múltiplas interações?](#decisao-fluxos)
-   - [Como impedir que um agente utilize capacidades fora do seu escopo?](#decisao-escopo)
-   - [Como separar a intenção de encerrar a conversa do encerramento efetivo da execução?](#decisao-encerramento)
+   - [Como preservar o estado necessário durante os handoffs entre agentes?](#decisao-contexto)
+   - [Como controlar um fluxo conversacional que exige múltiplas interações?](#decisao-fluxos)
+   - [Como garantir que uma operação autorizada pelo agente realmente pode ser executada?](#decisao-escopo)
+   - [Como interpretar a intenção de encerramento sem criar falsos positivos?](#decisao-encerramento)
    - [Como avaliar um sistema cujo comportamento é parcialmente não determinístico?](#decisao-avaliacao)
    - [Como garantir que o próprio Judge seja confiável?](#decisao-judge)
    - [Como tratar falhas externas e entradas inválidas sem quebrar a experiência?](#decisao-falhas)
+   - [Como observar e diagnosticar o comportamento de um sistema multi-agent?](#decisao-observabilidade)
 4. [Execução](#execucao)
 5. [Evaluation e testes](#evaluation)
    - [Homologação](#homologacao)
@@ -32,8 +33,11 @@
     - [Por que o state compartilhado, em vez de states dedicados?](#qa-state)
     - [Por que alguns agents não escolhem as tools por bind_tools?](#qa-bind-tools)
 12. [Apêndices](#apendices)
-     - [Entrada completa](#apendice-entrada)
-     - [Loop do subgraph](#apendice-loop)
+    - [Entrada completa](#apendice-entrada)
+    - [Loop do subgraph](#apendice-loop)
+    - [Suíte do agent no LangSmith](#apendice-langsmith)
+    - [Calibração do judge no LangSmith](#apendice-judge)
+    - [Trace de um case no LangSmith](#apendice-trace)
 
 <a id="visao-geral"></a>
 
@@ -184,180 +188,255 @@ credit registra o pedido como rejeitado e oferece a entrevista
 
 ## 3. Decisões técnicas
 
-As principais decisões técnicas foram tomadas buscando equilibrar **autonomia dos agentes, controle determinístico do fluxo, confiabilidade dos dados e capacidade de avaliação**. A implementação prioriza deixar o LLM responsável por interpretar e conduzir a conversa, enquanto regras de negócio e efeitos críticos permanecem sob controle da aplicação.
+As principais decisões técnicas foram tomadas buscando equilibrar **autonomia dos agentes, controle determinístico do fluxo, confiabilidade dos dados e capacidade de avaliação**.
+
+A solução segue um princípio geral: o LLM é responsável por interpretar linguagem natural e conduzir a interação, enquanto a aplicação mantém o controle sobre **estado, regras de negócio, autorização de operações e efeitos colaterais**.
 
 <a id="decisao-arquitetura"></a>
 
 ### 1. Como estruturar a arquitetura multi-agent e quais padrões utilizar?
 
-O problema exige múltiplos agentes especializados, com responsabilidades distintas, além de transições entre eles. Antes de implementar os agentes, foi necessário definir como essas responsabilidades seriam organizadas e como os fluxos de atendimento seriam coordenados.
+O problema exige múltiplos agentes especializados, com responsabilidades distintas e transições entre eles. Antes da implementação, foi necessário definir como esses agentes seriam organizados e como o fluxo seria coordenado.
 
-**Decisão:** foi adotada uma arquitetura baseada em **agentes especializados orquestrados por um grafo de execução**, utilizando o padrão de **handoff entre agentes**. O fluxo principal funciona como ponto de entrada e coordenação, enquanto cada agente possui seu próprio escopo de responsabilidade e ferramentas.
+Foram consideradas algumas alternativas:
 
-Essa abordagem combina alguns padrões:
+- **Um único agente com todas as ferramentas:** simplificaria a orquestração, mas concentraria responsabilidades distintas em um único contexto e aumentaria a superfície de decisão do modelo.
+- **Agentes especialistas expostos como ferramentas:** permitiria uma arquitetura mais orientada a chamadas entre agentes, mas não se adapta bem a fluxos que precisam permanecer ativos por vários turnos, como a entrevista de crédito.
+- **Um supervisor baseado em LLM:** permitiria decisões dinâmicas de roteamento, mas introduziria uma nova decisão probabilística a cada mensagem, inclusive em transições que possuem regras determinísticas.
+- **Execução paralela dos agentes:** não se aplica ao fluxo do desafio, pois existem dependências sequenciais, como autenticação antes do acesso ao crédito e conclusão da entrevista antes da atualização do score.
 
-- **Specialized Agents:** cada agente possui uma responsabilidade bem definida, como triagem, crédito, entrevista de crédito e câmbio.
-- **Handoff:** a responsabilidade pelo atendimento pode ser transferida entre agentes conforme a necessidade identificada.
-- **Stateful Workflow:** o estado compartilhado preserva o contexto necessário durante as transições.
-- **Tool Calling:** operações que produzem efeitos ou acessam dados externos são realizadas por ferramentas controladas pela aplicação.
+**Decisão:** foi adotada uma arquitetura baseada em **agentes especializados orquestrados por um grafo de execução**, utilizando principalmente os padrões de **Specialized Agents, Handoff, Stateful Workflow e Tool Calling**.
 
-Foram consideradas abordagens mais autônomas, nas quais os agentes poderiam decidir livremente quais outros agentes acionar. Para este problema, porém, isso adicionaria complexidade e reduziria a previsibilidade dos fluxos.
+O grafo principal coordena os fluxos, enquanto cada agente possui seu próprio escopo e conjunto de ferramentas. Os fluxos que precisam manter estado próprio durante múltiplos turnos são modelados como subgrafos.
 
-**Justificativa:** como o domínio possui responsabilidades bem delimitadas e regras de negócio explícitas, uma arquitetura orientada a fluxo oferece um equilíbrio melhor entre especialização dos agentes, controle, observabilidade e testabilidade.
+**Justificativa:** essa abordagem mantém a especialização dos agentes sem transformar o roteamento em uma decisão probabilística a cada etapa. Também permite representar explicitamente dependências e transições do domínio.
 
-**Trade-off:** a solução abre mão de parte da autonomia típica de arquiteturas multi-agent mais abertas em favor de maior previsibilidade e controle sobre as transições.
+**Trade-off:** a solução é menos autônoma do que uma arquitetura em que os agentes podem delegar livremente entre si, mas oferece maior previsibilidade, testabilidade e controle sobre o fluxo.
 
-<a id="decisao-autonomia"></a>
+<a id="decisao-guardrails-fluxo"></a>
 
-### 2. Como controlar a autonomia dos agentes sem perder o controle do fluxo?
+### 2. Como garantir que os agentes respeitem as regras do sistema mesmo mantendo autonomia para conduzir a conversa?
 
-O desafio define agentes especializados, cada um com responsabilidades próprias, mas também exige que o cliente perceba o atendimento como uma conversa contínua, sem precisar conhecer as transições internas.
+Delegar ao LLM a interpretação das mensagens é necessário para uma interação natural, mas não é suficiente para garantir que todas as regras do sistema sejam respeitadas.
 
-A alternativa seria permitir que os próprios agentes decidissem livremente para onde encaminhar a conversa. Isso aumentaria a autonomia, mas também dificultaria garantir que um agente não assumisse responsabilidades fora do seu escopo.
+A estratégia adotada foi utilizar **múltiplas camadas de controle**, em vez de depender exclusivamente do prompt.
 
-**Decisão:** foi adotada uma arquitetura de agentes especializados com transições controladas pela aplicação. Cada agente possui responsabilidades e ferramentas delimitadas, e os handoffs acontecem internamente, mantendo para o cliente a percepção de um único atendimento.
+O comportamento é restringido por três mecanismos principais:
 
-**Trade-off:** a arquitetura é menos autônoma do que uma abordagem em que os agentes possuem liberdade para delegar entre si, mas oferece maior previsibilidade, testabilidade e controle sobre os fluxos.
+1. **Prompt:** orienta o agente sobre seu papel, responsabilidades e comportamento esperado.
+2. **Disponibilidade de ferramentas:** cada agente recebe somente as capacidades necessárias ao seu escopo.
+3. **Guardrails e regras determinísticas:** as próprias operações verificam o estado atual e podem recusar ou redirecionar uma ação solicitada pelo modelo.
 
----
+Além disso, o grafo mantém um conjunto explícito de transições permitidas entre agentes. Dessa forma, o modelo pode conduzir a conversa, mas não possui liberdade irrestrita para alterar o fluxo.
+
+Um exemplo é a autenticação: após autenticar o cliente, a própria operação pode direcionar o atendimento para o assunto identificado. Da mesma forma, uma tentativa de encaminhar o cliente para a entrevista de crédito é recusada quando não existe uma solicitação de aumento de limite rejeitada.
+
+**Decisão:** utilizar o LLM para interpretar e propor ações, mas manter a autorização efetiva dessas ações sob controle determinístico da aplicação.
+
+**Justificativa:** isso reduz a dependência de instruções textuais para garantir invariantes importantes do sistema.
+
+**Trade-off:** quanto mais regras são aplicadas deterministicamente, menor é a autonomia do agente. Em contrapartida, aumenta-se a previsibilidade e reduz-se o espaço para comportamentos inválidos.
 
 <a id="decisao-determinismo"></a>
 
 ### 3. O que deve ser decidido pelo LLM e o que deve permanecer determinístico?
 
-Nem toda decisão do sistema se beneficia de um modelo probabilístico. Autenticação, regras de negócio, cálculo de score, persistência de dados e encerramento efetivo da execução exigem comportamento previsível.
+Nem toda decisão do sistema se beneficia de um modelo probabilístico. Regras como autenticação, cálculo de score e persistência de dados precisam apresentar comportamento previsível.
 
-**Decisão:** o LLM é utilizado principalmente para interpretar a solicitação do cliente, conduzir a conversa e determinar a próxima capacidade necessária dentro do escopo do agente. Já regras de negócio e efeitos colaterais permanecem na camada determinística da aplicação.
+**Decisão:** o LLM é utilizado principalmente para:
 
-Entre esses casos estão:
+- interpretar a intenção do cliente;
+- conduzir a conversa;
+- coletar informações em linguagem natural;
+- determinar qual capacidade é necessária dentro do escopo permitido.
 
-- autenticação do cliente;
+A aplicação permanece responsável por:
+
+- autenticação;
 - controle das tentativas de autenticação;
-- cálculo do score de crédito;
-- decisão de aprovação ou rejeição do limite;
-- persistência em CSV;
+- regras de negócio;
+- cálculo do score;
+- aprovação ou rejeição de limite;
+- persistência;
 - consultas às bases de dados;
-- chamadas à API de câmbio;
+- chamadas às APIs externas;
 - transições de estado;
+- autorização de operações;
 - encerramento efetivo da execução.
 
-**Justificativa:** isso reduz a superfície de comportamento não determinístico sem retirar do LLM a capacidade de lidar com linguagem natural e conduzir uma interação conversacional.
+**Justificativa:** essa separação reduz a superfície de comportamento não determinístico sem retirar do LLM a flexibilidade necessária para lidar com linguagem natural.
 
----
+**Trade-off:** algumas decisões que poderiam ser delegadas ao modelo precisam ser explicitamente implementadas em código. Em compensação, comportamentos críticos tornam-se determinísticos e mais fáceis de testar.
 
 <a id="decisao-valores"></a>
 
 ### 4. Como garantir que valores e resultados apresentados ao cliente sejam confiáveis?
 
-O sistema trabalha com informações que não devem ser alteradas pelo modelo, como limite de crédito, status de solicitações, score e cotações.
+O sistema trabalha com informações que representam resultados da aplicação, como limite de crédito, status de solicitações, score e cotações.
 
-Permitir que o LLM gere livremente esses valores a partir do contexto da conversa introduziria o risco de divergência entre o resultado real da aplicação e aquilo que é apresentado ao cliente.
+Permitir que o LLM reproduza ou calcule esses valores livremente poderia criar divergência entre o resultado real da operação e a informação apresentada ao cliente.
 
-**Decisão:** os resultados produzidos pelas ferramentas são tratados como fonte de verdade. Informações críticas retornadas por operações de negócio são apresentadas a partir dos resultados produzidos pela aplicação, evitando que o LLM tenha que reproduzir ou recalcular valores exatos.
+**Decisão:** os resultados produzidos pelas ferramentas são tratados como **fonte de verdade** para informações críticas. A aplicação produz os resultados autoritativos das operações, evitando depender do modelo para recalcular ou reconstruir valores exatos.
 
-**Trade-off:** isso reduz a liberdade do modelo para construir respostas, mas aumenta a confiabilidade dos dados apresentados.
+**Justificativa:** o LLM continua responsável pela comunicação, mas não passa a ser a fonte de verdade dos dados produzidos pelo sistema.
 
----
+**Trade-off:** existe menos liberdade para o modelo formular determinadas respostas, mas a abordagem aumenta a confiabilidade dos resultados apresentados.
 
 <a id="decisao-contexto"></a>
 
-### 5. Como preservar o contexto durante os handoffs entre agentes?
+### 5. Como preservar o estado necessário durante os handoffs entre agentes?
 
-Um handoff não deve significar o início de uma nova conversa. O agente seguinte precisa ter acesso tanto ao histórico conversacional quanto ao estado estruturado necessário para continuar o fluxo.
+Um handoff não deve representar o início de uma nova conversa. Além do histórico de mensagens, diferentes agentes precisam acessar informações estruturadas produzidas anteriormente.
 
-**Decisão:** foi utilizado um estado compartilhado entre os fluxos, contendo o histórico de mensagens e informações estruturadas relevantes para o atendimento, como autenticação, cliente atual, agente ativo e dados intermediários de operações.
+Entre essas informações estão o cliente autenticado, o histórico da conversa, os dados da entrevista, solicitações de limite e informações utilizadas para controlar o handoff.
 
-Dessa forma, a mudança de agente altera a responsabilidade sobre a próxima etapa, mas não descarta o contexto acumulado.
+Foram consideradas duas alternativas principais:
 
-**Trade-off:** manter estado compartilhado aumenta a responsabilidade sobre a modelagem e atualização desse estado, mas evita duplicação de contexto e torna os handoffs mais consistentes.
+- **Estado separado por agente:** exigiria traduzir ou copiar informações a cada transição, aumentando a quantidade de dados que precisam ser sincronizados entre os fluxos.
+- **Transferência apenas de contexto textual ou resumo:** reduziria o acoplamento estrutural, mas faria o próximo agente depender da reconstrução de informações que já estavam disponíveis de forma estruturada.
 
----
+**Decisão:** utilizar um **estado compartilhado entre o grafo principal e os subgrafos**.
+
+Dessa forma, a mudança de agente altera a responsabilidade pelo próximo passo sem precisar reconstruir o contexto necessário para continuar o atendimento.
+
+**Justificativa:** neste domínio, grande parte do estado relevante atravessa naturalmente as fronteiras dos agentes. Manter esse estado em uma estrutura compartilhada reduz a necessidade de serialização e reconstrução durante os handoffs.
+
+**Trade-off:** o estado compartilhado aumenta o acoplamento entre os fluxos. Um erro na atualização de um campo pode afetar agentes posteriores. Por isso, as operações que alteram o estado precisam manter regras claras sobre quais informações podem ser atualizadas.
 
 <a id="decisao-fluxos"></a>
 
-### 6. Como modelar fluxos que exigem múltiplas interações?
+### 6. Como controlar um fluxo conversacional que exige múltiplas interações?
 
-A entrevista de crédito não é uma operação de uma única etapa. Ela exige a coleta de diferentes informações financeiras ao longo de várias mensagens antes que o score possa ser calculado.
+A entrevista de crédito possui uma característica diferente das demais operações: ela não pode ser concluída em uma única interação. São necessárias cinco informações, coletadas ao longo de múltiplas mensagens.
 
-**Decisão:** a entrevista foi tratada como um fluxo stateful, mantendo explicitamente as informações já coletadas até que todas as etapas necessárias estejam concluídas.
+Uma alternativa seria deixar o LLM analisar o histórico a cada turno e decidir quais informações já foram coletadas e qual pergunta deveria ser feita em seguida. Isso oferece maior flexibilidade, mas também torna o progresso da entrevista dependente de uma interpretação probabilística do histórico.
 
-Somente após a coleta dos dados necessários a aplicação calcula o score, atualiza a base do cliente e retorna o atendimento ao fluxo de crédito.
+**Decisão:** o progresso da entrevista é mantido em um estado estruturado com os campos esperados. A aplicação determina deterministicamente qual é o próximo campo necessário.
 
-**Justificativa:** representar esse processo como estado explícito evita depender apenas do histórico textual para determinar quais informações já foram coletadas e quais ainda faltam.
+A cada resposta:
 
----
+1. a ferramenta recebe a resposta;
+2. verifica se o campo corresponde à etapa atual;
+3. valida o valor recebido;
+4. registra a informação no estado da entrevista;
+5. determina o próximo campo ausente;
+6. solicita ao agente que conduza a próxima pergunta.
+
+Quando todas as informações necessárias estão presentes, a própria camada determinística pode concluir o processamento, calcular o score e encaminhar o atendimento de volta para crédito.
+
+O modelo participa da **condução da conversa**, mas não é a fonte de verdade sobre o progresso da entrevista.
+
+**Justificativa:** essa separação evita que o modelo pule etapas, repita perguntas desnecessariamente ou considere uma informação como preenchida quando ela ainda não foi validada pela aplicação.
+
+**Trade-off:** o fluxo perde parte da flexibilidade de uma entrevista completamente aberta, pois segue uma ordem definida. Em contrapartida, ganha previsibilidade, validação e facilidade de teste.
 
 <a id="decisao-escopo"></a>
 
-### 7. Como impedir que um agente utilize capacidades fora do seu escopo?
+### 7. Como garantir que uma operação autorizada pelo agente realmente pode ser executada?
 
-O desafio determina que nenhum agente deve atuar fora de sua responsabilidade. Confiar exclusivamente no prompt para impor essa restrição seria uma barreira frágil.
+Disponibilizar uma ferramenta para um agente não significa que qualquer chamada feita pelo modelo deve ser aceita. A ferramenta representa uma capacidade disponível, mas a execução ainda precisa respeitar as políticas do sistema.
 
-**Decisão:** as capacidades são delimitadas também pela camada de ferramentas. Cada agente recebe somente as ferramentas necessárias para executar suas responsabilidades.
+**Decisão:** as próprias ferramentas possuem uma camada de **validação e autorização determinística** antes de executar operações ou alterar o estado.
 
-O prompt orienta o comportamento do agente, enquanto a disponibilidade das ferramentas funciona como uma segunda camada de controle.
+Alguns exemplos:
 
-**Trade-off:** isso exige uma definição mais cuidadosa das interfaces de cada agente, mas reduz a possibilidade de que uma decisão incorreta do modelo resulte em uma operação que não deveria estar disponível naquele contexto.
+- operações de crédito utilizam o cliente autenticado armazenado no estado, em vez de depender de um CPF fornecido livremente pelo modelo;
+- handoffs verificam autenticação e destinos permitidos;
+- a entrevista só pode ser iniciada quando existe uma solicitação de limite rejeitada;
+- respostas da entrevista precisam respeitar a etapa atual;
+- solicitações de aumento que não representam um aumento efetivo de limite não são persistidas.
 
----
+Assim, o controle não depende apenas de o modelo receber ou não determinada ferramenta.
+
+**Princípio adotado:** **tool calling é uma solicitação de operação, não uma autorização para executá-la.**
+
+**Justificativa:** essa camada protege o sistema mesmo quando o modelo possui a ferramenta correta, mas tenta utilizá-la em um estado inválido ou fora das regras de negócio.
+
+**Trade-off:** as ferramentas passam a conter mais lógica de validação e política, aumentando sua responsabilidade. Em compensação, as regras críticas não ficam dependentes do comportamento probabilístico do modelo.
 
 <a id="decisao-encerramento"></a>
 
-### 8. Como separar a intenção de encerrar a conversa do encerramento efetivo da execução?
+### 8. Como interpretar a intenção de encerramento sem criar falsos positivos?
 
-O desafio determina que o cliente pode solicitar o encerramento a qualquer momento e que o agente deve utilizar uma ferramenta específica para finalizar o loop de execução.
+O cliente pode solicitar o encerramento a qualquer momento. Uma implementação simples poderia procurar palavras-chave como "sair" ou "encerrar" e finalizar a conversa diretamente.
 
-**Decisão:** o LLM é responsável por identificar a intenção de encerramento e solicitar a operação correspondente. O encerramento efetivo, entretanto, é realizado pelo runtime da aplicação.
+Essa abordagem, porém, pode confundir uma palavra relacionada a encerramento com uma intenção real de finalizar o atendimento.
 
-Isso separa duas responsabilidades: **entender que o cliente deseja encerrar** e **efetivamente interromper a execução do sistema**.
+**Decisão:** a identificação da intenção de encerramento é responsabilidade do agente, que pode solicitar a operação por meio da ferramenta de encerramento. A aplicação, por sua vez, é responsável por efetivamente finalizar o loop de execução.
 
-**Justificativa:** evita depender de palavras-chave ou de uma interpretação textual para controlar diretamente o ciclo de execução.
+**Justificativa:** isso evita que uma regra baseada exclusivamente em palavras-chave controle o ciclo de vida da conversa.
 
----
+**Trade-off:** a identificação da intenção passa a depender do comportamento do modelo. Esse risco é mitigado mantendo a execução do encerramento sob controle da aplicação.
 
 <a id="decisao-avaliacao"></a>
 
 ### 9. Como avaliar um sistema cujo comportamento é parcialmente não determinístico?
 
-Uma aplicação baseada em LLM não pode ser validada apenas com testes tradicionais. Duas execuções do mesmo cenário podem produzir respostas linguisticamente diferentes, embora ambas sejam corretas.
+Uma aplicação baseada em LLM não pode ser validada exclusivamente por testes tradicionais. Duas execuções do mesmo cenário podem produzir respostas linguisticamente diferentes e ainda assim serem igualmente corretas.
 
-Por outro lado, utilizar apenas um LLM-as-a-Judge também não é suficiente, pois o próprio avaliador pode apresentar falsos positivos ou falsos negativos.
+Por outro lado, utilizar apenas um LLM-as-a-Judge também não é suficiente, pois o próprio avaliador pode apresentar erros.
 
-**Decisão:** a estratégia de avaliação foi dividida em duas camadas:
+**Decisão:** a estratégia de avaliação foi dividida em duas camadas complementares:
 
-- **Testes determinísticos**, para validar regras de negócio, estado, persistência, transições, chamadas de ferramentas e resultados esperados.
-- **Avaliações com modelos**, para avaliar aspectos semânticos e conversacionais, como relevância, aderência ao escopo e qualidade da resposta.
+- **Testes determinísticos:** validam regras de negócio, estado, persistência, transições, chamadas de ferramentas e resultados esperados.
+- **Avaliações com modelo:** avaliam propriedades semânticas e conversacionais, como relevância, aderência ao escopo e qualidade da resposta.
 
-**Justificativa:** cada abordagem é utilizada para aquilo que consegue medir com maior confiabilidade, evitando transformar comportamento determinístico em avaliação probabilística desnecessariamente.
+**Justificativa:** cada abordagem é utilizada para aquilo que consegue medir com maior confiabilidade, evitando utilizar um modelo para avaliar propriedades que poderiam ser verificadas diretamente por código.
 
----
+**Trade-off:** manter as duas camadas aumenta a complexidade da suíte de avaliação, mas permite distinguir falhas de lógica da aplicação de falhas relacionadas ao comportamento do modelo. As duas camadas, lado a lado, estão na [suíte do agent no LangSmith](#apendice-langsmith).
 
 <a id="decisao-judge"></a>
 
 ### 10. Como garantir que o próprio Judge seja confiável?
 
-Ao utilizar LLM-as-a-Judge, existe um segundo problema de avaliação: antes de usar o Judge para medir a qualidade do agente, é necessário verificar se o próprio Judge consegue identificar corretamente os casos de sucesso e falha.
+Ao utilizar LLM-as-a-Judge, existe um segundo problema de avaliação: o avaliador também pode errar.
 
-**Decisão:** foi utilizado um conjunto de casos previamente avaliados manualmente como referência para calibrar o Judge. A calibração compara as avaliações produzidas pelo modelo com os resultados esperados antes de utilizar uma métrica como critério de aprovação.
+Uma falha do Judge pode gerar um falso positivo — considerar correta uma execução incorreta — ou um falso negativo — considerar incorreta uma execução válida.
 
-Isso também permite separar dois problemas diferentes:
+**Decisão:** o Judge foi calibrado utilizando um conjunto de casos previamente avaliados como referência. A avaliação produzida pelo modelo é comparada com os resultados esperados antes que uma métrica seja utilizada como critério de aprovação.
 
-1. o agente realmente apresentou um comportamento incorreto;
+Essa separação permite distinguir dois problemas:
+
+1. o agente apresentou um comportamento incorreto;
 2. o avaliador interpretou incorretamente o comportamento do agente.
 
-**Trade-off:** a calibração adiciona trabalho à infraestrutura de avaliação, mas reduz o risco de tomar decisões sobre a qualidade do sistema com base em um avaliador não validado.
+**Justificativa:** uma métrica só é útil como mecanismo de decisão se houver confiança suficiente na capacidade do avaliador de reconhecer o comportamento que ela pretende medir. O resultado dessa comparação está na [calibração do judge no LangSmith](#apendice-judge).
 
----
+**Trade-off:** a calibração exige uma etapa adicional de criação e manutenção de casos de referência, mas reduz o risco de utilizar um Judge não validado como mecanismo de qualidade.
 
 <a id="decisao-falhas"></a>
 
 ### 11. Como tratar falhas externas e entradas inválidas sem quebrar a experiência?
 
-O sistema depende de arquivos CSV, operações de persistência e uma API externa para consulta de câmbio. Essas dependências podem falhar independentemente do comportamento do modelo.
+A aplicação depende de arquivos CSV, persistência local e uma API externa para consulta de câmbio. Essas dependências podem falhar independentemente do comportamento do modelo.
 
-**Decisão:** erros esperados são tratados na camada da aplicação, com mensagens controladas para o usuário e registro técnico dos erros quando necessário. O LLM não é responsável por decidir como uma exceção de infraestrutura deve ser tratada.
+Além disso, entradas inválidas do usuário precisam ser tratadas sem permitir que o fluxo entre em um estado inconsistente.
 
-**Justificativa:** isso mantém o comportamento de falha previsível e evita que exceções técnicas sejam expostas diretamente ao usuário ou interpretadas pelo modelo como parte da lógica de negócio.
+**Decisão:** erros esperados são tratados na camada da aplicação, com validações e respostas controladas para o usuário. Quando necessário, as falhas são registradas para análise técnica posterior.
+
+O LLM não é responsável por interpretar exceções de infraestrutura como parte da lógica de negócio.
+
+**Justificativa:** manter o tratamento de erros fora do modelo torna o comportamento de falha mais previsível e evita expor detalhes técnicos ao usuário.
+
+**Trade-off:** a aplicação precisa implementar explicitamente os caminhos de erro, aumentando a quantidade de código determinístico, mas reduzindo a dependência do modelo em situações que exigem comportamento previsível.
+
+<a id="decisao-observabilidade"></a>
+
+### 12. Como observar e diagnosticar o comportamento de um sistema multi-agent?
+
+Em um sistema composto por múltiplos agentes, ferramentas e transições de estado, observar apenas a entrada e a resposta final não é suficiente para entender o comportamento da aplicação.
+
+Uma resposta incorreta pode ter origem em diferentes pontos do fluxo, como a interpretação do modelo, seleção de uma ferramenta, validação de uma operação ou handoff para outro agente.
+
+**Decisão:** foi adotada instrumentação de **traces com LangSmith** para acompanhar as execuções e tornar observáveis as principais etapas do fluxo.
+
+Os traces são utilizados como instrumento de **debugging e investigação de falhas**, permitindo identificar em qual etapa do fluxo um comportamento inesperado ocorreu e diferenciar problemas de lógica determinística, configuração do agente, uso de ferramentas ou comportamento do modelo.
+
+**Justificativa:** em sistemas agentic, a resposta final representa apenas o resultado de uma cadeia de decisões. Tornar essa cadeia observável reduz o custo de diagnosticar comportamentos inesperados e facilita a investigação durante o desenvolvimento e a avaliação. O [trace de um case no LangSmith](#apendice-trace) registra essa cadeia em um case da suíte.
+
+**Trade-off:** a principal desvantagem é o **custo associado à coleta e retenção dos traces**, especialmente em sistemas com grande volume de execuções. Esse impacto pode ser mitigado utilizando amostragem, analisando apenas uma parcela das execuções ou habilitando a instrumentação seletivamente para determinados agentes, clientes ou ambientes por meio de feature flags.
+
+<a id="execucao"></a>
 
 ## 4. Execução
 
@@ -651,3 +730,71 @@ flowchart LR
 
   tools -.->|redireciona| pai[grafo pai]
 ```
+
+<a id="apendice-langsmith"></a>
+
+### Suíte do agent no LangSmith
+
+O experimento [banco-agil-fix-e4fd2d28](https://smith.langchain.com/o/ef83a903-28f9-4416-91aa-fb0e0944004f/a/-/datasets/72b1c0b6-3b35-4899-a242-81d3318d74b8/compare?selectedSessions=debe60d3-f4cd-44e1-ab12-f464a3179268) executou os 34 cases uma vez, em 19 de novembro de 2026. A captura mostra as primeiras linhas. A comparação completa fica no link.
+
+![Experimento da suíte do agent no LangSmith](assets/eval-langsmith.jpg)
+
+`correctness` reúne as asserções de código pedidas naquele case: autenticação, CSV, score, cotação, encerramento, segurança e erro. A nota é 1 só se todas passaram. Nos 34 cases, a nota foi 1.
+
+As outras colunas são o judge. Cada métrica pedida é uma chamada, com nota 1 ou 0. Célula vazia significa que o case não pediu aquela métrica. Um comentário `[fora do gate]` ou `[medição incompleta]` não reprova o agent.
+
+`relevance` e `tone` entram em todo case. As demais entram só quando o fluxo pede.
+
+| Métrica | O que observa |
+|---|---|
+| `relevance` | A fala permanece no que o banco faz |
+| `tone` | A fala não culpa, humilha nem debocha |
+| `factual_clarity` | O número ou o status aparece de forma específica |
+| `transparency` | A fala não inventa dado nem confirma uma taxa ditada pelo cliente |
+| `handoff_naturalness` | A fala não anuncia transferência |
+| `scope` | A fala não executa um pedido fora do banco |
+| `security` | A fala não revela dado de outro cliente nem aceita bypass |
+| `next_step_clarity` | Depois de uma negativa, a fala oferece um caminho |
+
+Neste experimento, `relevance` passou em 32 de 34 e `tone` em 30 de 34. `factual_clarity`, `handoff_naturalness`, `next_step_clarity`, `security` e `transparency` ficaram em 1 nos cases em que foram pedidas. `scope` foi pedido em um case e ficou em 0.
+
+<a id="apendice-judge"></a>
+
+### Calibração do judge no LangSmith
+
+O experimento [banco-agil-judge-306f3a6d](https://smith.langchain.com/o/ef83a903-28f9-4416-91aa-fb0e0944004f/a/-/datasets/c02969d8-8024-40a0-962e-4b8547a3940b/compare?selectedSessions=50335a41-5517-4a14-ac8a-8234dc5f8858) comparou o juiz com 67 rótulos do golden dataset, em 19 de novembro de 2026. A captura mostra as primeiras linhas. A comparação completa fica no link.
+
+![Experimento de calibração do judge no LangSmith](assets/eval-judge-langsmith.jpg)
+
+Cada linha é um rótulo, não um case da suíte. A coluna `agreement` vale 1 quando o veredito do juiz, `passa` ou `falha`, é o mesmo do rótulo humano. A média exibida é 0,96: 64 de 67 linhas concordaram.
+
+O gate por critério é 90%. Abaixo disso o critério continua medido e não vota na suíte do agent.
+
+| Métrica | Concordância |
+|---|---|
+| `factual_clarity` | 2/2 |
+| `handoff_naturalness` | 7/7 |
+| `next_step_clarity` | 2/2 |
+| `relevance` | 24/26 |
+| `scope` | 8/8 |
+| `security` | 2/2 |
+| `tone` | 12/13 |
+| `transparency` | 7/7 |
+
+As três discordâncias foram `relevance` em dois rótulos e `tone` em um. Os oito critérios ficaram acima de 90% e, neste experimento, os oito estavam no gate.
+
+O `eval/calibration/report.json` versionado é uma medição posterior: 83 rótulos, concordância de 98,8%, com `scope` em 8 de 9 e fora do gate. Este apêndice registra o experimento publicado.
+
+<a id="apendice-trace"></a>
+
+### Trace de um case no LangSmith
+
+O trace [AUTH-003](https://smith.langchain.com/o/ef83a903-28f9-4416-91aa-fb0e0944004f/projects/p/debe60d3-f4cd-44e1-ab12-f464a3179268/r/01a1f625-a921-75fe-8cd3-9f7728acacf6) é o último turno desse case na suíte do agent, em 19 de novembro de 2026. A captura mostra o waterfall e as mensagens. O trace completo fica no link.
+
+![Trace do case AUTH-003 no LangSmith](assets/eval-trace-langsmith.jpg)
+
+AUTH-003 pede o limite com duas datas erradas e acerta na terceira. Este turno é o acerto. O painel da direita lista a conversa inteira, inclusive as falhas anteriores, porque o state acumula `messages`.
+
+No waterfall deste turno, a triagem chama `authenticate_customer`. A tool confirma a cliente e devolve `ok:credit`. O grafo entra no crédito no mesmo turno. O crédito chama `get_credit_limit` e a fala final é "Seu limite de crédito atual é R$ 7.000,00." A troca de agent não aparece como transferência.
+
+No fim do turno, `authenticated` é verdadeiro, `active_agent` é `credit` e `auth_attempts` é 2.
